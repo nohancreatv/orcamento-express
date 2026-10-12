@@ -1,0 +1,11 @@
+# Dependências e arquivos locais
+node_modules/
+.env
+.env.*
+!.env.example
+work/
+*.tar
+*.zip
+orcamento-express-backup-*.json
+.DS_Store
+Thumbs.db

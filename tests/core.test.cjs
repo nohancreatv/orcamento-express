@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict');
+const C=require('../dist/core.js');
+const d={items:[{name:'Pintura',qty:1,price:1000,optional:false,selected:true},{name:'Extra',qty:1,price:200,optional:true,selected:false}],hours:6,prep:1,hourly:50,material:100,travel:50,reserve:10,tax:10,target:200,upfront:350,discount:10,deposit:30,number:'T1',issued:'2026-10-11',validity:7,pro:'Teste <script>',client:'Cliente',scope:'Escopo',excluded:'Excluído',deadline:'2 dias',payment:'Pix'};
+let c=C.calculate(d);
+assert.equal(c.subtotal,1000);assert.equal(c.total,900);assert.equal(c.cost,550);assert.equal(c.tax,90);assert.equal(c.profit,260);assert.equal(c.deposit,270);assert.equal(c.gap,80);assert.equal(c.balance,630);assert.equal(c.floor,611.12);assert.equal(c.target,833.34);
+assert.ok(C.calculate({...d,discount:c.room}).profit>=d.target);
+const selected=structuredClone(d);selected.items[1].selected=true;assert.equal(C.calculate(selected).subtotal,1200);
+const loss=structuredClone(d);loss.discount=80;assert.equal(C.calculate(loss).profit,-370);
+const zero=structuredClone(d);zero.items=[];assert.equal(C.calculate(zero).margin,0);assert.ok(Number.isFinite(C.calculate({...zero,tax:100}).floor));
+assert.equal(C.amount(-10),0);assert.equal(C.amount(Infinity),0);
+const html=C.publicDocument(d);assert.ok(html.includes('&lt;script&gt;'));assert.ok(html.includes('Escopo'));assert.ok(!html.includes('Resultado estimado'));assert.ok(!html.includes('Extra'));assert.ok(html.includes('270,00'));assert.ok(html.includes('900,00'));
+assert.equal(C.round(1.005),1.01);
+console.log('Passed: totals, optional selection, discount/loss, deposit gap, tax limits, zero revenue, document privacy and HTML escaping.');
