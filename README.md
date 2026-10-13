@@ -49,8 +49,6 @@ dist/
   app.js         Interações, persistência e backup
 tests/
   core.test.cjs  Verificações dos cálculos
-.openai/
-  hosting.json   Identidade e configuração do site existente no Sites
 ```
 
 ## Dados e limites atuais
