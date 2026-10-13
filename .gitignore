@@ -1,5 +1,6 @@
 # Dependências e arquivos locais
 node_modules/
+.netlify/
 .env
 .env.*
 !.env.example
