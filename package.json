@@ -1,0 +1,1 @@
+{"name":"orcamento-express","private":true,"scripts":{"build":"node scripts/build.cjs","test":"node tests/core.test.cjs && node tests/guest.test.cjs"},"dependencies":{"@supabase/supabase-js":"2.117.3"},"devDependencies":{"esbuild":"0.25.12","jsdom":"^26.1.0"}}

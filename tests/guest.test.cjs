@@ -1,0 +1,30 @@
+const {JSDOM}=require('jsdom');
+const fs=require('node:fs');
+const assert=require('node:assert/strict');
+(async()=>{
+const dom=new JSDOM(fs.readFileSync('dist/index.html','utf8'),{url:'https://example.com',runScripts:'outside-only'});
+const w=dom.window;let mode;
+w.OEAuth={ready:Promise.resolve(null),go:value=>mode=value};
+w.localStorage.setItem('oe-workspace-v2','{"private":"old client"}');
+w.eval(fs.readFileSync('dist/core.js','utf8'));w.eval(fs.readFileSync('dist/app.js','utf8'));await Promise.resolve();
+assert.equal(w.document.querySelector('[data-field=client]').value,'');
+assert.equal(w.document.querySelector('[data-field=payment]').value,'');
+assert.equal(w.document.querySelector('[data-field=reserve]').value,'0');
+assert.equal(w.document.querySelector('[data-field=deposit]').value,'0');
+assert.match(w.document.getElementById('grandTotal').textContent,/0,00/);
+assert.equal(w.localStorage.length,1,'guest must not persist or overwrite legacy data');
+w.document.getElementById('saveBtn').click();assert.equal(mode,'signup');
+w.document.getElementById('createBtn').click();assert.equal(mode,'signup');
+function account(id){w.dispatchEvent(new w.CustomEvent('oe-auth',{detail:id?{id}:null}));}
+account('one');let title=w.document.querySelector('[data-field=title]');title.value='Private proposal';title.dispatchEvent(new w.Event('input'));
+assert.match(w.localStorage.getItem('oe-workspace-v3:one'),/Private proposal/);
+account('two');assert.equal(title.value,'');
+account('one');assert.equal(title.value,'Private proposal');
+account(null);assert.equal(title.value,'');assert.equal(w.document.getElementById('count').textContent,'0');
+assert.equal(w.localStorage.getItem('oe-workspace-v2'),'{"private":"old client"}');
+dom.window.close();
+const login=new JSDOM(fs.readFileSync('dist/login.html','utf8'),{url:'https://example.com/login.html',runScripts:'outside-only'});
+login.window.eval(fs.readFileSync('dist/auth-config.js','utf8'));login.window.eval(fs.readFileSync('dist/auth.js','utf8'));
+await Promise.resolve();assert.equal(login.window.document.getElementById('authControls').disabled,true);assert.match(login.window.document.getElementById('authMessage').textContent,/preparado/);assert.equal(login.window.document.querySelectorAll('.provider-button').length,4);login.window.close();
+console.log('Guest access, account separation, legacy preservation and unconfigured login: passed.');
+})();

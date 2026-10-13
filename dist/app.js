@@ -1,14 +1,14 @@
 (function(){
   'use strict';
-  var $=function(id){return document.getElementById(id)},C=window.OE,clone=function(x){return JSON.parse(JSON.stringify(x))},key='oe-workspace-v2',draft,versions=[],storageOK=true,toastTimer;
+  var $=function(id){return document.getElementById(id)},C=window.OE,clone=function(x){return JSON.parse(JSON.stringify(x))},key=null,accountId=null,draft,versions=[],storageOK=true,toastTimer;
   var today=function(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
   var uid=function(){return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8)};
   var numeric={validity:365,hours:10000,hourly:100000,prep:10000,material:1e9,travel:1e9,reserve:100,tax:99,target:1e9,upfront:1e9,discount:100,deposit:100};
   function fresh(example){
     return {id:uid(),example:!!example,title:example?'Pintura da sala e corredor':'',client:example?'Marina Alves':'',pro:example?'Ateliê da Casa':'',contact:'',phone:'',number:'OE-'+new Date().getTime().toString().slice(-6),issued:today(),validity:7,logo:'',
       items:example?[{name:'Preparação e pintura · duas demãos',qty:1,price:680,optional:false,selected:true},{name:'Materiais e proteção do ambiente',qty:1,price:140,optional:false,selected:true},{name:'Pintura de uma porta',qty:1,price:180,optional:true,selected:false}]:[{name:'',qty:1,price:0,optional:false,selected:true}],
-      scope:example?'Proteção dos móveis e piso, preparação leve da superfície e aplicação de duas demãos. Uma visita de conferência.':'',excluded:example?'Correção de infiltração e reparos estruturais.':'',deadline:example?'3 dias úteis após a confirmação.':'',payment:'Pix ou transferência',
-      hours:example?6:0,hourly:example?55:0,prep:example?1:0,material:example?120:0,travel:example?35:0,reserve:5,tax:0,target:example?250:0,upfront:example?155:0,discount:0,deposit:40,baseline:null};
+      scope:example?'Proteção dos móveis e piso, preparação leve da superfície e aplicação de duas demãos. Uma visita de conferência.':'',excluded:example?'Correção de infiltração e reparos estruturais.':'',deadline:example?'3 dias úteis após a confirmação.':'',payment:example?'Pix ou transferência':'',
+      hours:example?6:0,hourly:example?55:0,prep:example?1:0,material:example?120:0,travel:example?35:0,reserve:example?5:0,tax:0,target:example?250:0,upfront:example?155:0,discount:0,deposit:example?40:0,baseline:null};
   }
   function normalize(input){
     if(!input||typeof input!=='object'||!Array.isArray(input.items)||input.items.length>100)throw Error('Formato de orçamento inválido.');
@@ -21,7 +21,7 @@
     return d;
   }
   function toast(text){$('toast').textContent=text;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(function(){$('toast').classList.remove('show')},4000)}
-  function persist(){try{localStorage.setItem(key,JSON.stringify({schema:2,draft:draft,versions:versions}));storageOK=true}catch(e){storageOK=false}$('saveStatus').textContent=storageOK?'Salvo neste navegador':'Não foi possível salvar · faça backup';$('saveStatus').classList.toggle('error',!storageOK);$('count').textContent=versions.length}
+  function persist(){if(!key){$('saveStatus').textContent='Prévia pública · não salva';$('count').textContent='0';return;}try{localStorage.setItem(key,JSON.stringify({schema:2,draft:draft,versions:versions}));storageOK=true}catch(e){storageOK=false}$('saveStatus').textContent=storageOK?'Salvo neste navegador':'Não foi possível salvar · faça backup';$('saveStatus').classList.toggle('error',!storageOK);$('count').textContent=versions.length}
   function setTab(name){
     document.querySelectorAll('[data-tab]').forEach(function(b){var active=b.dataset.tab===name;b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1});
     ['proposal','health','preview'].forEach(function(p){$('panel-'+p).hidden=p!==name});
@@ -103,10 +103,24 @@
   $('removeLogo').onclick=function(){draft.logo='';$('logoInput').value='';bindValues()};
   $('backupBtn').onclick=function(){var payload=JSON.stringify({schema:2,draft:draft,versions:versions},null,2),url=URL.createObjectURL(new Blob([payload],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='orcamento-express-backup-'+today()+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(url)},2000);toast('Backup contém propostas e custos internos. Guarde com cuidado.')};
   $('importInput').onchange=async function(e){var file=e.target.files[0];if(!file)return;try{if(file.size>15000000)throw Error('O backup deve ter até 15 MB.');var data=JSON.parse(await file.text());if(data.schema!==2||!Array.isArray(data.versions))throw Error('Este arquivo não é um backup do Orçamento Express.');var imported=normalize(data.draft),incoming=data.versions.map(function(v){return {id:String(v.id||uid()),savedAt:Number.isFinite(Date.parse(v.savedAt))?v.savedAt:new Date().toISOString(),status:['Rascunho','Enviado','Aprovado (manual)','Recusado (manual)'].includes(v.status)?v.status:'Rascunho',data:normalize(v.data)}});var known=new Set(versions.map(function(v){return v.id})),merged=versions.concat(incoming.filter(function(v){return !known.has(v.id)}));if(!confirm('Restaurar o rascunho deste backup? O rascunho atual será guardado e os arquivos serão combinados.'))return;merged.unshift({id:uid(),savedAt:new Date().toISOString(),status:'Rascunho',data:clone(draft)});versions=merged;draft=imported;bindValues();toast('Backup restaurado. Versões anteriores preservadas.')}catch(err){toast(err.message||'Não foi possível restaurar o backup.')}finally{e.target.value=''}};
-  try{
-    var stored=JSON.parse(localStorage.getItem(key)||'null');
-    if(stored&&stored.schema===2){draft=normalize(stored.draft);versions=(stored.versions||[]).map(function(v){return {id:v.id,savedAt:v.savedAt,status:v.status,data:normalize(v.data)}})}
-    else{var old=JSON.parse(localStorage.getItem('oe-draft')||'null');draft=fresh(!old);if(old){['title','client','pro','phone','scope','excluded','payment'].forEach(function(k){draft[k]=old[k]||''});['hours','hourly','prep','material','travel','validity'].forEach(function(k){draft[k]=C.amount(old[k],numeric[k])});draft.travel+=C.amount(old.overhead);draft.reserve=C.amount(old.returnPct,100);draft.tax=C.amount(old.tax,99);draft.target=C.amount(old.profit);var c=C.calculate(draft);draft.items=[{name:draft.title||'Serviço',qty:1,price:c.target,optional:false,selected:true}];draft.example=false}}
-  }catch(err){draft=fresh(true);toast('Não foi possível ler o arquivo salvo. O conteúdo anterior não será sobrescrito automaticamente.');storageOK=false;key='oe-workspace-recovery-'+Date.now()}
+  // Anonymous visits never load legacy or account-specific browser data.
+  draft=fresh(false);
   bindValues();setTab('proposal');
+  function requireAccount(){if(accountId)return true;window.OEAuth.go('signup');return false;}
+  ['saveBtn','newBtn','historyBtn','baselineBtn','backupBtn','printBtn','copyBtn','whatsappBtn'].forEach(function(id){var handler=$(id).onclick;$(id).onclick=function(event){if(requireAccount())return handler.call(this,event);};});
+  $('importInput').addEventListener('click',function(event){if(!requireAccount())event.preventDefault();});
+  $('createBtn').onclick=function(){if(requireAccount()){setTab('proposal');document.querySelector('[data-field=title]').focus();}};
+  $('loginBtn').onclick=function(){window.OEAuth.go('login');};
+  $('accountBtn').onclick=async function(){if(!accountId)return window.OEAuth.go('signup');try{await window.OEAuth.signOut();}catch(error){toast('Não foi possível sair. Tente novamente.');}};
+  function useAccount(user){
+    var next=user?user.id:null;if(next===accountId)return;
+    accountId=next;key=next?'oe-workspace-v3:'+next:null;versions=[];draft=fresh(false);
+    if(key){try{var stored=JSON.parse(localStorage.getItem(key)||'null');if(stored&&stored.schema===2){draft=normalize(stored.draft);versions=(stored.versions||[]).map(function(v){return {id:v.id,savedAt:v.savedAt,status:v.status,data:normalize(v.data)};});}}catch(error){key=key+':recovery:'+Date.now();toast('Não foi possível abrir seus dados locais. O arquivo original foi preservado.');}}
+    $('loginBtn').hidden=!!next;$('accountBtn').textContent=next?'Sair':'Criar conta';
+    $('historyList').replaceChildren();$('messageText').value='';$('logoInput').value='';
+    ['historyDialog','messageDialog'].forEach(function(id){if($(id).open)$(id).close();});
+    bindValues();setTab('proposal');
+  }
+  window.addEventListener('oe-auth',function(event){useAccount(event.detail);});
+  window.OEAuth.ready.then(useAccount);
 })();

@@ -10,3 +10,7 @@ work/
 orcamento-express-backup-*.json
 .DS_Store
 Thumbs.db
+
+node_modules/
+dist/auth.js
+dist/auth-config.js
