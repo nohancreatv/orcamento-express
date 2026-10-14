@@ -6,7 +6,12 @@
     "test": "node tests/core.test.cjs && node tests/guest.test.cjs && node tests/cloud.test.cjs && node tests/auth.test.cjs"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
     "esbuild": "0.25.12",
+    "firebase-tools": "^15.33.0",
     "jsdom": "^26.1.0"
+  },
+  "dependencies": {
+    "firebase": "^13.0.0"
   }
 }

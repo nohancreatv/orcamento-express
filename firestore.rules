@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) {
+      return request.auth != null && request.auth.uid == uid
+        && (request.auth.token.get('email_verified', false) == true
+            || request.auth.token.firebase.sign_in_provider in ['google.com', 'microsoft.com', 'facebook.com', 'github.com']);
+    }
+    function valid() {
+      return request.resource.data.keys().hasAll(['payload', 'revision', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['payload', 'revision', 'updatedAt'])
+        && request.resource.data.payload is string
+        && request.resource.data.payload.size() <= 900000
+        && request.resource.data.revision is int
+        && request.resource.data.updatedAt == request.time;
+    }
+    match /workspaces/{uid} {
+      allow get: if owner(uid);
+      allow create: if owner(uid) && valid() && request.resource.data.revision == 1;
+      allow update: if owner(uid) && valid() && request.resource.data.revision == resource.data.revision + 1;
+    }
+  }
+}

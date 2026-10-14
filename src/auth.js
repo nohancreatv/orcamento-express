@@ -8,6 +8,7 @@ const auth = window.OEAuth = {
   request,
 };
 async function request(path, method='GET', data, accountId) {
+  if(window.OEFirebaseTransport)return window.OEFirebaseTransport.request(path,method,data,accountId);
   if(!enabled)throw Object.assign(new Error('O serviço de contas está sendo configurado.'),{status:503});
   const headers={Accept:'application/json'};
   if(method!=='GET'){headers['Content-Type']='application/json';headers['X-CSRF-Token']=csrf;}
@@ -75,6 +76,7 @@ async function initLogin(){
     button.textContent=(mode==='account'?'Conectar ':'Continuar com ')+label+(linked?' · conectado':button.disabled?' · em breve':'');
     button.onclick=()=>run(async()=>{
       const result=await request('auth/oauth/'+provider+'/start','POST',{link:mode==='account'});
+      if(result.completed){location.replace(mode==='account'?'/login.html?linked=1':'/');return;}
       const url=new URL(result.url);if(url.protocol!=='https:')throw new Error('Endereço de acesso inválido.');location.assign(url.href);
     });
     $('providerButtons').append(button);
