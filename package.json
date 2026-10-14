@@ -1,1 +1,12 @@
-{"name":"orcamento-express","private":true,"scripts":{"build":"node scripts/build.cjs","test":"node tests/core.test.cjs && node tests/guest.test.cjs"},"dependencies":{"@supabase/supabase-js":"2.117.3"},"devDependencies":{"esbuild":"0.25.12","jsdom":"^26.1.0"}}
+{
+  "name": "orcamento-express",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "test": "node tests/core.test.cjs && node tests/guest.test.cjs && node tests/cloud.test.cjs && node tests/auth.test.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "jsdom": "^26.1.0"
+  }
+}

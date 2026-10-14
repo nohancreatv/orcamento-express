@@ -1,0 +1,20 @@
+const {JSDOM}=require('jsdom');const fs=require('node:fs');const assert=require('node:assert/strict');
+(async()=>{
+ const dom=new JSDOM('',{runScripts:'outside-only'}),w=dom.window;
+ w.eval(fs.readFileSync('src/workspace-store.js','utf8'));
+ const requests=[];let fail=null,revision=0;
+ const request=async(path,method,data,account)=>{requests.push({path,method,data,account});if(fail)throw fail;if(method==='GET')return {workspace:null,revision};return {revision:++revision};};
+ const store=new w.OEWorkspaceStore(request,()=>{});
+ await store.load('user-one');store.queue({value:1});await store.flush();
+ assert.equal(requests[1].account,'user-one');assert.equal(requests[1].data.revision,0);assert.equal(store.dirty,false);
+ store.queue({value:1});await store.flush();assert.equal(requests.length,2,'unchanged render does not resave');
+ fail=Object.assign(new Error('offline'),{status:0});store.queue({value:2});await assert.rejects(store.flush());assert.equal(store.dirty,true);
+ fail=null;await store.flush();assert.equal(store.dirty,false);
+ fail=Object.assign(new Error('conflict'),{status:409});store.queue({value:3});await assert.rejects(store.flush());assert.equal(store.blocked,true);assert.equal(store.dirty,true);
+ fail=null;const count=requests.length;await assert.rejects(store.flush());assert.equal(requests.length,count,'conflict cannot overwrite server');
+ store.reset();assert.equal(store.dirty,false);
+ let finish;const deferred=new Promise(resolve=>finish=resolve);
+ const changing=new w.OEWorkspaceStore(async(p,m)=>m==='GET'?{workspace:null,revision:0}:deferred,()=>{});
+ await changing.load('old');changing.queue({value:'old'});const saving=changing.flush();await changing.load('new');finish({revision:44});await saving;assert.equal(changing.revision,0,'late response must not mutate new account');
+ dom.window.close();console.log('Cloud save: deduplication, retries, conflicts and account changes passed.');
+})();

@@ -1,10 +1,8 @@
-const fs = require('node:fs');
-const esbuild = require('esbuild');
-const url = process.env.SUPABASE_URL || '';
-const key = process.env.SUPABASE_PUBLISHABLE_KEY || '';
-if (url && !/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(url)) throw new Error('Invalid SUPABASE_URL');
-if (key && !key.startsWith('sb_publishable_')) throw new Error('Use only a Supabase publishable key (sb_publishable_), never a secret key.');
-const supported = ['google','azure','facebook','github'];
-const providers = (process.env.AUTH_PROVIDERS || '').split(',').map(x=>x.trim()).filter(x=>supported.includes(x));
-fs.writeFileSync('dist/auth-config.js', 'window.OE_AUTH_CONFIG=' + JSON.stringify({url,key,providers}) + ';\n');
-esbuild.buildSync({entryPoints:['src/auth.js'],bundle:true,minify:true,outfile:'dist/auth.js',platform:'browser',target:['es2020']});
+const fs=require('node:fs');
+const esbuild=require('esbuild');
+const origin=(process.env.API_ORIGIN||'').replace(/\/$/,'');
+if(origin){const u=new URL(origin);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw new Error('API_ORIGIN must be the HTTPS origin of the PHP host, without credentials or path.');}
+fs.writeFileSync('dist/auth-config.js','window.OE_AUTH_CONFIG='+JSON.stringify({backendEnabled:!!origin||process.env.API_LOCAL==='true'})+';\n');
+fs.writeFileSync('dist/_redirects',origin?'/api/* '+origin+'/api/:splat 200!\n':'');
+esbuild.buildSync({entryPoints:['src/auth.js'],bundle:true,minify:true,outfile:'dist/auth.js',target:['es2020']});
+esbuild.buildSync({entryPoints:['src/workspace-store.js'],bundle:true,minify:true,outfile:'dist/workspace-store.js',target:['es2020']});

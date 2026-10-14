@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  var $=function(id){return document.getElementById(id)},C=window.OE,clone=function(x){return JSON.parse(JSON.stringify(x))},key=null,accountId=null,draft,versions=[],storageOK=true,toastTimer;
+  var $=function(id){return document.getElementById(id)},C=window.OE,clone=function(x){return JSON.parse(JSON.stringify(x))},accountId=null,draft,versions=[],storageOK=true,toastTimer;
   var today=function(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
   var uid=function(){return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8)};
   var numeric={validity:365,hours:10000,hourly:100000,prep:10000,material:1e9,travel:1e9,reserve:100,tax:99,target:1e9,upfront:1e9,discount:100,deposit:100};
@@ -21,7 +21,16 @@
     return d;
   }
   function toast(text){$('toast').textContent=text;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(function(){$('toast').classList.remove('show')},4000)}
-  function persist(){if(!key){$('saveStatus').textContent='Prévia pública · não salva';$('count').textContent='0';return;}try{localStorage.setItem(key,JSON.stringify({schema:2,draft:draft,versions:versions}));storageOK=true}catch(e){storageOK=false}$('saveStatus').textContent=storageOK?'Salvo neste navegador':'Não foi possível salvar · faça backup';$('saveStatus').classList.toggle('error',!storageOK);$('count').textContent=versions.length}
+  var loading=false,loaded=false,loadSequence=0;
+  var cloud=new window.OEWorkspaceStore(window.OEAuth.request,function(message,error){
+    $('saveStatus').textContent=message;$('saveStatus').classList.toggle('error',!!error);
+    $('syncRetry').hidden=!error;$('syncRetry').textContent=cloud.blocked?'Recarregar dados':'Tentar novamente';
+  });
+  function persist(){
+    $('count').textContent=accountId?versions.length:0;
+    if(!accountId){$('saveStatus').textContent='Prévia pública · não salva';return;}
+    if(!loading&&loaded)cloud.queue({schema:2,draft:draft,versions:versions});
+  }
   function setTab(name){
     document.querySelectorAll('[data-tab]').forEach(function(b){var active=b.dataset.tab===name;b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1});
     ['proposal','health','preview'].forEach(function(p){$('panel-'+p).hidden=p!==name});
@@ -68,8 +77,9 @@
     diff();persist();
   }
   function saveVersion(silent){
+    if(versions.length>=100){toast('Limite de 100 versões. Baixe um backup para preservar seu arquivo.');return false;}
     versions.unshift({id:uid(),savedAt:new Date().toISOString(),status:'Rascunho',data:clone(draft)});
-    persist();if(!silent)toast(storageOK?'Versão guardada no arquivo local.':'Versão mantida na sessão. Faça um backup para não perder.');return true;
+    persist();if(!silent)cloud.flush().then(function(){toast('Versão salva na sua conta.')}).catch(function(error){toast(error.message)});return true;
   }
   function history(){
     $('historyList').innerHTML=versions.length?versions.map(function(v,n){
@@ -89,12 +99,12 @@
   $('items').addEventListener('click',function(e){var b=e.target.closest('[data-remove]');if(!b)return;draft.items.splice(Number(b.dataset.remove),1);renderItems();render()});
   $('addItem').onclick=function(){if(draft.items.length>=100)return toast('Limite de 100 itens por proposta.');draft.items.push({name:'',qty:1,price:0,optional:false,selected:true});renderItems();render();$('items').lastElementChild.querySelector('input').focus()};
   $('saveBtn').onclick=function(){saveVersion(false)};
-  $('newBtn').onclick=function(){saveVersion(true);var pro=draft.example?'':draft.pro,contact=draft.example?'':draft.contact,logo=draft.logo;draft=fresh(false);draft.pro=pro;draft.contact=contact;draft.logo=logo;bindValues();setTab('proposal');toast('Anterior guardado. Nova proposta pronta.')};
+  $('newBtn').onclick=function(){if(!saveVersion(true))return;var pro=draft.example?'':draft.pro,contact=draft.example?'':draft.contact,logo=draft.logo;draft=fresh(false);draft.pro=pro;draft.contact=contact;draft.logo=logo;bindValues();setTab('proposal');toast('Nova proposta pronta. Aguarde a confirmação do salvamento.')};
   $('historyBtn').onclick=function(){history();$('historyDialog').showModal()};
   $('closeHistory').onclick=function(){$('historyDialog').close()};
   $('closeMessage').onclick=function(){$('messageDialog').close()};
   $('historyList').addEventListener('change',function(e){if(e.target.dataset.status!==undefined){versions[Number(e.target.dataset.status)].status=e.target.value;persist()}});
-  $('historyList').addEventListener('click',function(e){var b=e.target.closest('[data-load],[data-duplicate]');if(!b)return;var v=clone(versions[Number(b.dataset.load===undefined?b.dataset.duplicate:b.dataset.load)].data);if(!saveVersion(true))return toast('Arquivo cheio. Exporte um backup.');draft=v;if(b.dataset.duplicate!==undefined){draft.id=uid();draft.number=fresh(false).number;draft.issued=today();draft.baseline=null;draft.example=false}bindValues();setTab('proposal');$('historyDialog').close();toast('Versão aberta. O rascunho anterior foi guardado.')});
+  $('historyList').addEventListener('click',function(e){var b=e.target.closest('[data-load],[data-duplicate]');if(!b)return;var v=clone(versions[Number(b.dataset.load===undefined?b.dataset.duplicate:b.dataset.load)].data);if(!saveVersion(true))return toast('Arquivo cheio. Exporte um backup.');draft=v;if(b.dataset.duplicate!==undefined){draft.id=uid();draft.number=fresh(false).number;draft.issued=today();draft.baseline=null;draft.example=false}bindValues();setTab('proposal');$('historyDialog').close();toast('Versão aberta. Salvando o rascunho anterior na sua conta.')});
   $('baselineBtn').onclick=function(){if(draft.baseline&&!confirm('Substituir a referência anterior por esta versão?'))return;var b=clone(draft);b.baseline=null;b.savedAt=new Date().toLocaleString('pt-BR');draft.baseline=b;render();toast('Referência guardada para comparar alterações.')};
   $('printBtn').onclick=function(){render();window.print()};
   $('copyBtn').onclick=async function(){var text=summaryText();try{await navigator.clipboard.writeText(text);toast('Resumo copiado, sem custos internos.')}catch(e){fallbackCopy(text)}};
@@ -102,25 +112,48 @@
   $('logoInput').onchange=function(e){var file=e.target.files[0];if(!file)return;if(!['image/png','image/jpeg'].includes(file.type)||file.size>1048576){toast('Use PNG ou JPG de até 1 MB.');e.target.value='';return}var reader=new FileReader();reader.onload=function(){draft.logo=String(reader.result);bindValues();toast(storageOK?'Logo adicionado.':'Logo aplicado na sessão. Faça backup.')};reader.readAsDataURL(file)};
   $('removeLogo').onclick=function(){draft.logo='';$('logoInput').value='';bindValues()};
   $('backupBtn').onclick=function(){var payload=JSON.stringify({schema:2,draft:draft,versions:versions},null,2),url=URL.createObjectURL(new Blob([payload],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='orcamento-express-backup-'+today()+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(url)},2000);toast('Backup contém propostas e custos internos. Guarde com cuidado.')};
-  $('importInput').onchange=async function(e){var file=e.target.files[0];if(!file)return;try{if(file.size>15000000)throw Error('O backup deve ter até 15 MB.');var data=JSON.parse(await file.text());if(data.schema!==2||!Array.isArray(data.versions))throw Error('Este arquivo não é um backup do Orçamento Express.');var imported=normalize(data.draft),incoming=data.versions.map(function(v){return {id:String(v.id||uid()),savedAt:Number.isFinite(Date.parse(v.savedAt))?v.savedAt:new Date().toISOString(),status:['Rascunho','Enviado','Aprovado (manual)','Recusado (manual)'].includes(v.status)?v.status:'Rascunho',data:normalize(v.data)}});var known=new Set(versions.map(function(v){return v.id})),merged=versions.concat(incoming.filter(function(v){return !known.has(v.id)}));if(!confirm('Restaurar o rascunho deste backup? O rascunho atual será guardado e os arquivos serão combinados.'))return;merged.unshift({id:uid(),savedAt:new Date().toISOString(),status:'Rascunho',data:clone(draft)});versions=merged;draft=imported;bindValues();toast('Backup restaurado. Versões anteriores preservadas.')}catch(err){toast(err.message||'Não foi possível restaurar o backup.')}finally{e.target.value=''}};
-  // Anonymous visits never load legacy or account-specific browser data.
-  draft=fresh(false);
-  bindValues();setTab('proposal');
-  function requireAccount(){if(accountId)return true;window.OEAuth.go('signup');return false;}
-  ['saveBtn','newBtn','historyBtn','baselineBtn','backupBtn','printBtn','copyBtn','whatsappBtn'].forEach(function(id){var handler=$(id).onclick;$(id).onclick=function(event){if(requireAccount())return handler.call(this,event);};});
+  $('importInput').onchange=async function(e){var file=e.target.files[0];if(!file)return;try{if(file.size>15000000)throw Error('O backup deve ter até 15 MB.');var data=JSON.parse(await file.text());if(data.schema!==2||!Array.isArray(data.versions))throw Error('Este arquivo não é um backup do Orçamento Express.');if(data.versions.length>100)throw Error('O backup deve conter até 100 versões.');var imported=normalize(data.draft),incoming=data.versions.map(function(v){return {id:String(v.id||uid()),savedAt:Number.isFinite(Date.parse(v.savedAt))?v.savedAt:new Date().toISOString(),status:['Rascunho','Enviado','Aprovado (manual)','Recusado (manual)'].includes(v.status)?v.status:'Rascunho',data:normalize(v.data)}});var known=new Set(versions.map(function(v){return v.id})),merged=versions.concat(incoming.filter(function(v){return !known.has(v.id)}));if(merged.length>=100)throw Error('A combinação excede o limite de 100 versões.');if(!confirm('Restaurar o rascunho deste backup? O rascunho atual será guardado e os arquivos serão combinados.'))return;merged.unshift({id:uid(),savedAt:new Date().toISOString(),status:'Rascunho',data:clone(draft)});versions=merged;draft=imported;bindValues();toast('Backup restaurado. Versões anteriores preservadas.')}catch(err){toast(err.message||'Não foi possível restaurar o backup.')}finally{e.target.value=''}};
+  // Public visits always start empty; no automatic import of legacy browser data.
+  draft=fresh(false);bindValues();setTab('proposal');
+  function requireAccount(){
+    if(!accountId){window.OEAuth.go('signup');return false;}
+    if(loading||!loaded){toast('Aguarde o carregamento dos seus orçamentos ou tente novamente.');return false;}
+    return true;
+  }
+  ['saveBtn','newBtn','historyBtn','baselineBtn','printBtn','copyBtn','whatsappBtn'].forEach(function(id){var handler=$(id).onclick;$(id).onclick=function(event){if(requireAccount())return handler.call(this,event);};});
+  // Backup remains available when a session or connection expires, to preserve pending edits.
   $('importInput').addEventListener('click',function(event){if(!requireAccount())event.preventDefault();});
   $('createBtn').onclick=function(){if(requireAccount()){setTab('proposal');document.querySelector('[data-field=title]').focus();}};
   $('loginBtn').onclick=function(){window.OEAuth.go('login');};
-  $('accountBtn').onclick=async function(){if(!accountId)return window.OEAuth.go('signup');try{await window.OEAuth.signOut();}catch(error){toast('Não foi possível sair. Tente novamente.');}};
-  function useAccount(user){
-    var next=user?user.id:null;if(next===accountId)return;
-    accountId=next;key=next?'oe-workspace-v3:'+next:null;versions=[];draft=fresh(false);
-    if(key){try{var stored=JSON.parse(localStorage.getItem(key)||'null');if(stored&&stored.schema===2){draft=normalize(stored.draft);versions=(stored.versions||[]).map(function(v){return {id:v.id,savedAt:v.savedAt,status:v.status,data:normalize(v.data)};});}}catch(error){key=key+':recovery:'+Date.now();toast('Não foi possível abrir seus dados locais. O arquivo original foi preservado.');}}
-    $('loginBtn').hidden=!!next;$('accountBtn').textContent=next?'Sair':'Criar conta';
+  $('accountBtn').onclick=async function(){
+    if(!accountId)return window.OEAuth.go('signup');
+    try{if(cloud.dirty)await cloud.flush();await window.OEAuth.signOut();}catch(error){toast('Não foi possível concluir a saída. Faça backup das alterações pendentes e tente novamente.');}
+  };
+  $('syncRetry').onclick=async function(){
+    if(cloud.blocked){if(!confirm('Baixe um backup antes de continuar: recarregar substitui as alterações desta aba pelos dados do servidor. Deseja recarregar?'))return;location.reload();return;}
+    if(!loaded){useAccount(window.OEAuth.user,true);return;}
+    try{await cloud.flush();}catch(error){toast(error.message);}
+  };
+  $('manageAccount').onclick=async function(event){if(cloud.dirty){event.preventDefault();try{await cloud.flush();location.assign(this.href);}catch(error){toast('Faça backup das alterações pendentes antes de sair desta página.');}}};
+  async function useAccount(user,retry){
+    var next=user?user.id:null;if(next===accountId&&!retry)return;
+    var sequence=++loadSequence;accountId=next;loading=!!next;loaded=false;
+    cloud.reset();versions=[];draft=fresh(false);$('syncRetry').hidden=true;
+    $('loginBtn').hidden=!!next;$('manageAccount').hidden=!next;$('accountBtn').textContent=next?'Sair':'Criar conta';
     $('historyList').replaceChildren();$('messageText').value='';$('logoInput').value='';
     ['historyDialog','messageDialog'].forEach(function(id){if($(id).open)$(id).close();});
+    document.querySelector('.workspace-grid').inert=!!next;
     bindValues();setTab('proposal');
+    if(!next)return;
+    try{
+      var stored=await cloud.load(next);if(sequence!==loadSequence)return;
+      if(stored){draft=normalize(stored.draft);versions=(stored.versions||[]).map(function(v){return {id:v.id,savedAt:v.savedAt,status:v.status,data:normalize(v.data)};});}
+      // Render while loading so reading existing data never causes a write.
+      bindValues();loading=false;loaded=true;document.querySelector('.workspace-grid').inert=false;
+    }catch(error){if(sequence!==loadSequence)return;loading=false;cloud.loaded=false;$('saveStatus').textContent='Não foi possível carregar seus dados. Tente novamente.';$('saveStatus').classList.add('error');$('syncRetry').hidden=false;}
   }
   window.addEventListener('oe-auth',function(event){useAccount(event.detail);});
   window.OEAuth.ready.then(useAccount);
+  window.addEventListener('beforeunload',function(event){if(cloud.dirty){event.preventDefault();event.returnValue='';}});
+  window.addEventListener('online',function(){if(cloud.dirty&&!cloud.blocked)cloud.flush().catch(function(){});});
 })();

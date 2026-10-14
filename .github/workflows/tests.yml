@@ -1,0 +1,43 @@
+name: Application tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: local-test-only
+          MYSQL_DATABASE: oe_test_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci && npm run build && npm test
+      - name: PHP extensions
+        run: sudo apt-get update && sudo apt-get install -y php-cli php-mysql php-mbstring php-curl php-xml composer
+      - name: Backend dependencies
+        working-directory: backend
+        run: composer install --no-interaction --prefer-dist
+      - name: PHP syntax
+        run: find backend -path backend/vendor -prune -o -name '*.php' -exec php -l {} \;
+      - name: Integration with MySQL
+        env:
+          TEST_DB_NAME: oe_test_ci
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: local-test-only
+        run: python3 tests/integration.py
+      - name: OAuth adapters
+        run: php tests/oauth.php

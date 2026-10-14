@@ -1,64 +1,89 @@
-import { createClient } from '@supabase/supabase-js';
-const config = window.OE_AUTH_CONFIG || {};
-const client = config.url && config.key ? createClient(config.url, config.key, {auth:{flowType:'pkce',detectSessionInUrl:true,persistSession:true,autoRefreshToken:true}}) : null;
 const $ = id => document.getElementById(id);
-let user = null;
-let recovery = new URLSearchParams(location.search).get('mode') === 'recovery';
-const auth = window.OEAuth = {user:null, ready:null, go(mode='signup'){location.assign('/login.html?mode='+mode);},async signOut(){if(client){const {error}=await client.auth.signOut();if(error)throw error;}location.replace('/');}};
-function publish(next){user=next;auth.user=next;window.dispatchEvent(new CustomEvent('oe-auth',{detail:next}));}
-if(client)client.auth.onAuthStateChange((event,session)=>{
-  if(event==='PASSWORD_RECOVERY')recovery=true;
-  if(event==='SIGNED_OUT')publish(null);
-  // Never await another Supabase call inside this callback.
-  if(event==='SIGNED_IN'||event==='TOKEN_REFRESHED')setTimeout(()=>refresh(),0);
-});
-async function refresh(){if(!client)return null;try{const {data,error}=await client.auth.getUser();publish(error?null:data.user);return auth.user;}catch{publish(null);return null;}}
-auth.ready=refresh();
+const enabled = window.OE_AUTH_CONFIG?.backendEnabled === true;
+let csrf = '';
+const auth = window.OEAuth = {
+  user: null, settings: null, ready: null,
+  go(mode='signup') { location.assign('/login.html?mode='+encodeURIComponent(mode)); },
+  async signOut() { await request('auth/logout','POST',{}); location.replace('/'); },
+  request,
+};
+async function request(path, method='GET', data, accountId) {
+  if(!enabled)throw Object.assign(new Error('O serviço de contas está sendo configurado.'),{status:503});
+  const headers={Accept:'application/json'};
+  if(method!=='GET'){headers['Content-Type']='application/json';headers['X-CSRF-Token']=csrf;}
+  if(accountId)headers['X-OE-Account']=accountId;
+  let response;
+  try {response=await fetch('/api/'+path,{method,headers,credentials:'same-origin',cache:'no-store',body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(22000)});}
+  catch {throw Object.assign(new Error('Sem conexão com o servidor. Suas alterações ainda não foram salvas online.'),{status:0});}
+  let result;try {result=await response.json();} catch {throw Object.assign(new Error('O serviço de contas está temporariamente indisponível.'),{status:503});}
+  if(!response.ok)throw Object.assign(new Error(result.message||'Não foi possível concluir.'),{status:response.status,code:result.error});
+  if(result.csrf)csrf=result.csrf;
+  return result;
+}
+auth.ready=(async()=>{
+  if(!enabled)return null;
+  try {const session=await request('session');auth.settings=session;auth.user=session.user;window.dispatchEvent(new CustomEvent('oe-auth',{detail:session.user}));return session.user;}
+  catch(error){auth.error=error;return null;}
+})();
 if($('authForm'))initLogin();
 async function initLogin(){
-  let mode=new URLSearchParams(location.search).get('mode')==='signup'?'signup':'login';
-  let busy=false;
-  const labels={google:'Google',azure:'Microsoft',facebook:'Facebook',github:'GitHub'};
-  function message(text){$('authMessage').textContent=text;}
+  const query=new URLSearchParams(location.search),fragment=new URLSearchParams(location.hash.slice(1));
+  const token=fragment.get('reset_token')||fragment.get('verify_token');
+  let mode=fragment.has('reset_token')?'recovery':fragment.has('verify_token')?'verify':query.get('mode')==='signup'?'signup':'login';
+  if(token)history.replaceState(null,'',location.pathname+location.search);
+  let busy=false, available=false;
+  const labels={google:'Google',microsoft:'Microsoft',facebook:'Facebook',github:'GitHub'};
+  const message=text=>{$('authMessage').textContent=text;};
   function update(){
-    $('authTitle').textContent=mode==='signup'?'Seu próximo orçamento começa aqui.':mode==='reset'?'Vamos recuperar seu acesso.':mode==='recovery'?'Escolha uma nova senha.':'Bom ter você de volta.';
-    $('authSubmit').textContent=mode==='signup'?'Criar minha conta':mode==='reset'?'Enviar link de recuperação':mode==='recovery'?'Salvar nova senha':'Entrar';
+    const titles={signup:'Seu próximo orçamento começa aqui.',login:'Bom ter você de volta.',reset:'Vamos recuperar seu acesso.',recovery:'Escolha uma nova senha.',verify:'Confirme seu e-mail.',resend:'Receba um novo link.',account:'Seus acessos, no mesmo lugar.'};
+    $('authTitle').textContent=titles[mode];
+    $('authSubmit').textContent={signup:'Criar minha conta',login:'Entrar',reset:'Enviar link de recuperação',recovery:'Salvar nova senha',verify:'Confirmar meu e-mail',resend:'Reenviar confirmação'}[mode]||'Entrar';
     $('nameLabel').hidden=mode!=='signup';$('authName').required=mode==='signup';
-    $('emailLabel').hidden=mode==='recovery';$('authEmail').required=mode!=='recovery';
-    $('passwordLabel').hidden=mode==='reset';$('authPassword').required=mode!=='reset';
-    $('authPassword').minLength=mode==='login'?1:8;
+    const emailHidden=['recovery','verify','account'].includes(mode);
+    $('emailLabel').hidden=emailHidden;$('authEmail').required=!emailHidden;
+    const passwordHidden=['reset','resend','verify','account'].includes(mode);
+    $('passwordLabel').hidden=passwordHidden;$('authPassword').required=!passwordHidden;
+    $('authPassword').minLength=mode==='login'?1:10;$('authPassword').maxLength=72;
     $('authPassword').autocomplete=mode==='login'?'current-password':'new-password';
-    $('providerArea').hidden=['reset','recovery'].includes(mode);
-    $('forgotPassword').hidden=mode!=='login';
+    $('providerArea').hidden=!['login','signup','account'].includes(mode);
+    $('forgotPassword').hidden=mode!=='login';$('resendConfirmation').hidden=mode!=='login';
     $('switchMode').textContent=mode==='signup'?'Já tenho conta. Entrar':mode==='login'?'Ainda não tenho conta. Criar conta':'Voltar para entrar';
+    $('switchMode').hidden=mode==='account';$('authSubmit').hidden=mode==='account';
+    $('accountHome').hidden=mode!=='account';
+    const emailAllowed=auth.settings?.emailEnabled===true;
+    $('authSubmit').disabled=!available||(!emailAllowed&&['signup','reset','resend'].includes(mode));
   }
-  async function run(fn){if(busy||!client)return;busy=true;message('Aguarde…');$('authControls').disabled=true;try{await fn();}catch(error){message(friendly(error));}finally{busy=false;$('authControls').disabled=!client;}}
-  function friendly(error){if(error?.code==='invalid_credentials')return 'E-mail ou senha incorretos.';if(error?.code==='email_not_confirmed')return 'Confirme seu e-mail antes de entrar.';if(error?.status===429)return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';return 'Não foi possível concluir. Confira os dados e sua conexão e tente novamente.';}
+  async function run(fn){if(busy||!available)return;busy=true;message('Aguarde…');$('authControls').disabled=true;try{await fn();}catch(error){message(error.message);}finally{busy=false;$('authControls').disabled=!available;update();}}
   $('switchMode').onclick=()=>{mode=mode==='login'?'signup':'login';message('');update();};
   $('forgotPassword').onclick=()=>{mode='reset';message('');update();};
+  $('resendConfirmation').onclick=()=>{mode='resend';message('');update();};
   $('togglePassword').onclick=()=>{const show=$('authPassword').type==='password';$('authPassword').type=show?'text':'password';$('togglePassword').textContent=show?'Ocultar':'Mostrar';};
-  const providers=Array.isArray(config.providers)?config.providers:[];
-  Object.entries(labels).forEach(([provider,label])=>{
-    const b=document.createElement('button');b.type='button';b.className='provider-button';b.textContent='Continuar com '+label;b.disabled=!client||!providers.includes(provider);
-    if(b.disabled){b.textContent+=' · em breve';b.title='Esta opção ainda não foi ativada.';}
-    b.onclick=()=>run(async()=>{const {error}=await client.auth.signInWithOAuth({provider,options:{redirectTo:location.origin+'/login.html',...(provider==='azure'?{scopes:'email'}:{})}});if(error)throw error;});
-    $('providerButtons').append(b);
-  });
   $('authForm').onsubmit=e=>{e.preventDefault();run(async()=>{
-    const email=$('authEmail').value.trim(),password=$('authPassword').value;
-    if(mode==='reset'){const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+'/login.html?mode=recovery'});if(error)throw error;message('Se houver uma conta para este e-mail, você receberá um link de recuperação.');return;}
-    if(mode==='recovery'){const {error}=await client.auth.updateUser({password});if(error)throw error;location.replace('/');return;}
-    const result=mode==='signup'?await client.auth.signUp({email,password,options:{data:{full_name:$('authName').value.trim()},emailRedirectTo:location.origin+'/login.html'}}):await client.auth.signInWithPassword({email,password});
-    if(result.error)throw result.error;
-    $('authPassword').value='';
-    if(result.data.session)location.replace('/');else message('Confira seu e-mail para confirmar o cadastro. Se já tiver conta, use Entrar ou recupere a senha.');
+    const data={email:$('authEmail').value.trim(),password:$('authPassword').value,name:$('authName').value.trim(),token};
+    const route={signup:'register',login:'login',reset:'forgot',resend:'resend',verify:'verify',recovery:'reset'}[mode];
+    const result=await request('auth/'+route,'POST',data);$('authPassword').value='';
+    if(mode==='login'){location.replace('/');return;}
+    message(result.message);if(['verify','recovery'].includes(mode)){mode='login';update();}
   });};
-  update();
-  if(!client){$('authControls').disabled=true;message('O cadastro está sendo preparado. Por enquanto, você pode explorar a planilha pública.');return;}
-  $('authControls').disabled=true;
-  const current=await auth.ready;
-  $('authControls').disabled=false;
-  if(recovery){mode=current?'recovery':'reset';if(!current)message('Este link expirou ou não pôde ser validado. Solicite um novo link.');update();}
-  else if(current)location.replace('/');
-  else if(new URLSearchParams(location.search).has('error')||location.hash.includes('error'))message('O acesso não foi concluído. Tente entrar novamente ou solicite um novo link.');
+  update();message('Verificando opções de acesso…');
+  const current=await auth.ready;available=!!auth.settings;
+  if(current&&!['recovery','verify'].includes(mode))mode='account';
+  for(const [provider,label] of Object.entries(labels)){
+    const linked=auth.settings?.identities?.includes(provider);
+    const button=document.createElement('button');button.type='button';button.className='provider-button';
+    button.disabled=!available||!auth.settings.providers.includes(provider)||!!linked;
+    button.textContent=(mode==='account'?'Conectar ':'Continuar com ')+label+(linked?' · conectado':button.disabled?' · em breve':'');
+    button.onclick=()=>run(async()=>{
+      const result=await request('auth/oauth/'+provider+'/start','POST',{link:mode==='account'});
+      const url=new URL(result.url);if(url.protocol!=='https:')throw new Error('Endereço de acesso inválido.');location.assign(url.href);
+    });
+    $('providerButtons').append(button);
+  }
+  $('authControls').disabled=!available;update();
+  if(!available)message('O cadastro está sendo preparado. Por enquanto, você pode explorar a planilha pública.');
+  else if(query.has('error'))message('O acesso não foi concluído. Tente novamente. Para conectar outra plataforma, entre primeiro na sua conta existente.');
+  else if(query.has('linked'))message('Novo acesso conectado à sua conta.');
+  else if(mode==='account')message('Conecte outras plataformas aqui para acessar os mesmos orçamentos.');
+  else if(!auth.settings.emailEnabled&&mode==='signup')message('O cadastro por e-mail ainda está sendo preparado. Use uma opção de acesso disponível.');
+  else message('');
 }

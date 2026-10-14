@@ -14,3 +14,12 @@ Thumbs.db
 node_modules/
 dist/auth.js
 dist/auth-config.js
+
+backend/vendor/
+backend/.env
+backend/.env.*
+!backend/.env.example
+*.log
+
+dist/workspace-store.js
+dist/_redirects

@@ -1,0 +1,12 @@
+{
+  "name": "nohancreatv/orcamento-express-api",
+  "description": "PHP/MySQL backend for Orçamento Express",
+  "type": "project",
+  "require": {
+    "php": "^8.2", "ext-pdo": "*", "ext-pdo_mysql": "*", "ext-mbstring": "*",
+    "league/oauth2-client": "^2.8", "league/oauth2-google": "^4.0",
+    "league/oauth2-facebook": "^2.2", "league/oauth2-github": "^3.1",
+    "phpmailer/phpmailer": "^6.10", "vlucas/phpdotenv": "^5.6"
+  },
+  "config": {"sort-packages": true, "allow-plugins": {}}
+}
